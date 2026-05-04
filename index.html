@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>格差パニック - Inequality Panic</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a0f;
+  color: #fff;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  overflow: hidden;
+  touch-action: none;
+}
+#canvas-container {
+  width: 100vw;
+  height: 100vh;
+  position: fixed;
+  top: 0; left: 0;
+}
+#ui-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
+#title {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  text-shadow: 0 0 20px #ff00ff, 0 0 40px #ff00ff;
+}
+#title h1 {
+  font-size: clamp(1.2rem, 4vw, 2rem);
+  color: #ff66ff;
+  letter-spacing: 0.1em;
+}
+#title p {
+  font-size: clamp(0.6rem, 2vw, 0.9rem);
+  color: #aaa;
+  margin-top: 2px;
+}
+#stats-panel {
+  position: absolute;
+  top: 60px;
+  right: 10px;
+  background: rgba(10, 10, 20, 0.85);
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: clamp(0.65rem, 2vw, 0.85rem);
+  line-height: 1.6;
+  backdrop-filter: blur(5px);
+}
+#stats-panel .label { color: #888; }
+#stats-panel .value { color: #0ff; font-weight: bold; }
+#gini-value { color: #ff4444 !important; font-size: 1.2em; }
+#controls {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  pointer-events: all;
+}
+#controls button {
+  background: rgba(20, 20, 40, 0.9);
+  border: 1px solid #555;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: clamp(0.65rem, 2.5vw, 0.85rem);
+  cursor: pointer;
+  transition: all 0.2s;
+  backdrop-filter: blur(5px);
+  white-space: nowrap;
+}
+#controls button:hover, #controls button:active {
+  border-color: #0ff;
+  box-shadow: 0 0 10px #0ff;
+  transform: scale(1.05);
+}
+#controls button.active {
+  border-color: #ff0;
+  box-shadow: 0 0 10px #ff0;
+  background: rgba(60, 60, 0, 0.5);
+}
+#bin-labels {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  font-size: clamp(0.5rem, 1.8vw, 0.75rem);
+  text-align: center;
+  width: 80%;
+  max-width: 500px;
+  justify-content: space-around;
+}
+.bin-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 50px;
+}
+.bin-label .name { font-weight: bold; }
+.bin-label .count { color: #aaa; font-size: 0.9em; }
+#instructions {
+  position: absolute;
+  bottom: 50px;
+  left: 10px;
+  font-size: 0.7rem;
+  color: #666;
+  pointer-events: none;
+}
+@media (max-width: 600px) {
+  #stats-panel { top: 55px; right: 5px; padding: 6px 10px; }
+  #controls { bottom: 5px; gap: 4px; }
+  #controls button { padding: 6px 10px; }
+  #bin-labels { bottom: 50px; width: 95%; }
+}
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="canvas-container"></div>
+<div id="ui-overlay">
+  <div id="title">
+    <h1>格差パニック</h1>
+    <p>Inequality Panic — Wealth Distribution Simulator</p>
+  </div>
+  <div id="stats-panel">
+    <div><span class="label">コイン数 / Coins: </span><span class="value" id="total-coins">0</span></div>
+    <div><span class="label">ジニ係数 / Gini: </span><span class="value" id="gini-value">0.000</span></div>
+    <hr style="border-color:#333;margin:4px 0;">
+    <div><span class="label">貧困: </span><span class="value" id="pct-0">0%</span></div>
+    <div><span class="label">低所得: </span><span class="value" id="pct-1">0%</span></div>
+    <div><span class="label">中流: </span><span class="value" id="pct-2">0%</span></div>
+    <div><span class="label">富裕: </span><span class="value" id="pct-3">0%</span></div>
+    <div><span class="label">超富裕: </span><span class="value" id="pct-4">0%</span></div>
+  </div>
+  <div id="bin-labels">
+    <div class="bin-label"><span class="name" style="color:#ff3333;">貧困</span><span class="count" id="count-0">0</span></div>
+    <div class="bin-label"><span class="name" style="color:#ff8833;">低所得</span><span class="count" id="count-1">0</span></div>
+    <div class="bin-label"><span class="name" style="color:#ffff33;">中流</span><span class="count" id="count-2">0</span></div>
+    <div class="bin-label"><span class="name" style="color:#88ff33;">富裕</span><span class="count" id="count-3">0</span></div>
+    <div class="bin-label"><span class="name" style="color:#ffd700;">超富裕</span><span class="count" id="count-4">0</span></div>
+  </div>
+  <div id="controls">
+    <button id="btn-regulate">規制強化<br><small>More Pegs</small></button>
+    <button id="btn-deregulate">規制緩和<br><small>Fewer Pegs</small></button>
+    <button id="btn-tax">税制導入<br><small>Tax</small></button>
+    <button id="btn-reset">リセット<br><small>Reset</small></button>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+// --- Configuration ---
+const BOARD_WIDTH = 10;
+const BOARD_HEIGHT = 14;
+const PEG_RADIUS = 0.15;
+const COIN_RADIUS = 0.18;
+const GRAVITY = -15;
+const DAMPING = 0.65;
+const NUM_BINS = 5;
+const MAX_COINS = 300;
+const AUTO_DROP_INTERVAL = 600; // ms
+
+// --- State ---
+let regulationLevel = 0; // -2 to +2
+let taxEnabled = false;
+let coins = [];
+let binCounts = [0, 0, 0, 0, 0];
+let pegs = [];
+let pegMeshes = [];
+let taxRedirectors = [];
+let taxMeshes = [];
+let particles = [];
+let trails = [];
+let lastAutoDrop = 0;
+
+// --- Three.js Setup ---
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a0a0f, 0.02);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 1, 18);
+camera.lookAt(0, -1, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+container.appendChild(renderer.domElement);
+
+// --- Lights ---
+const ambientLight = new THREE.AmbientLight(0x222244, 0.5);
+scene.add(ambientLight);
+
+const pointLight1 = new THREE.PointLight(0xff00ff, 1.5, 30);
+pointLight1.position.set(-5, 8, 5);
+scene.add(pointLight1);
+
+const pointLight2 = new THREE.PointLight(0x00ffff, 1.5, 30);
+pointLight2.position.set(5, -3, 5);
+scene.add(pointLight2);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.3);
+dirLight.position.set(0, 10, 10);
+scene.add(dirLight);
+
+// --- Board background ---
+const boardGeo = new THREE.PlaneGeometry(BOARD_WIDTH + 2, BOARD_HEIGHT + 2);
+const boardMat = new THREE.MeshStandardMaterial({
+  color: 0x0a0a1a,
+  roughness: 0.9,
+  metalness: 0.1,
+  transparent: true,
+  opacity: 0.7
+});
+const boardMesh = new THREE.Mesh(boardGeo, boardMat);
+boardMesh.position.z = -0.5;
+boardMesh.position.y = -1;
+scene.add(boardMesh);
+
+// --- Walls ---
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x333355, emissive: 0x111133, metalness: 0.8, roughness: 0.3 });
+const wallGeo = new THREE.BoxGeometry(0.15, BOARD_HEIGHT + 2, 0.6);
+const leftWall = new THREE.Mesh(wallGeo, wallMat);
+leftWall.position.set(-BOARD_WIDTH / 2 - 0.9, -1, 0);
+scene.add(leftWall);
+const rightWall = new THREE.Mesh(wallGeo, wallMat);
+rightWall.position.set(BOARD_WIDTH / 2 + 0.9, -1, 0);
+scene.add(rightWall);
+
+// --- Floor ---
+const floorGeo = new THREE.BoxGeometry(BOARD_WIDTH + 2, 0.15, 0.6);
+const floorMesh = new THREE.Mesh(floorGeo, wallMat);
+floorMesh.position.set(0, -BOARD_HEIGHT / 2, 0);
+scene.add(floorMesh);
+
+// --- Bin dividers ---
+const binWidth = (BOARD_WIDTH + 1.6) / NUM_BINS;
+const binColors = [0xff3333, 0xff8833, 0xffff33, 0x88ff33, 0xffd700];
+for (let i = 1; i < NUM_BINS; i++) {
+  const divGeo = new THREE.BoxGeometry(0.08, 2.5, 0.5);
+  const divMat = new THREE.MeshStandardMaterial({ color: 0x555577, emissive: 0x222244 });
+  const div = new THREE.Mesh(divGeo, divMat);
+  div.position.set(-BOARD_WIDTH / 2 - 0.8 + i * binWidth, -BOARD_HEIGHT / 2 + 1.25, 0);
+  scene.add(div);
+}
+
+// --- Bin floor glow ---
+for (let i = 0; i < NUM_BINS; i++) {
+  const glowGeo = new THREE.PlaneGeometry(binWidth - 0.15, 0.3);
+  const glowMat = new THREE.MeshBasicMaterial({ color: binColors[i], transparent: true, opacity: 0.3 });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  glow.position.set(-BOARD_WIDTH / 2 - 0.8 + (i + 0.5) * binWidth, -BOARD_HEIGHT / 2 + 0.1, 0.1);
+  scene.add(glow);
+}
+
+// --- Peg Generation ---
+function generatePegs() {
+  // Remove old pegs
+  pegMeshes.forEach(m => scene.remove(m));
+  pegMeshes = [];
+  pegs = [];
+
+  const baseRows = 8;
+  const extraRows = regulationLevel; // -2 to +2
+  const rows = Math.max(4, baseRows + extraRows * 2);
+  const startY = BOARD_HEIGHT / 2 - 3;
+  const rowSpacing = (BOARD_HEIGHT - 5) / rows;
+
+  for (let row = 0; row < rows; row++) {
+    const numPegsInRow = (row % 2 === 0) ? 5 + Math.abs(regulationLevel) : 4 + Math.abs(regulationLevel);
+    const y = startY - row * rowSpacing;
+    const spread = BOARD_WIDTH * 0.38 + regulationLevel * 0.2;
+    for (let col = 0; col < numPegsInRow; col++) {
+      const x = (col - (numPegsInRow - 1) / 2) * (spread * 2 / (numPegsInRow - 1 || 1));
+      pegs.push({ x, y, radius: PEG_RADIUS });
+
+      const pegGeo = new THREE.SphereGeometry(PEG_RADIUS, 12, 12);
+      const hue = (row / rows) * 0.3 + 0.5;
+      const pegColor = new THREE.Color().setHSL(hue, 0.8, 0.5);
+      const pegMat = new THREE.MeshStandardMaterial({
+        color: pegColor,
+        emissive: pegColor,
+        emissiveIntensity: 0.6,
+        metalness: 0.9,
+        roughness: 0.2
+      });
+      const pegMesh = new THREE.Mesh(pegGeo, pegMat);
+      pegMesh.position.set(x, y, 0);
+      scene.add(pegMesh);
+      pegMeshes.push(pegMesh);
+    }
+  }
+}
+
+// --- Tax Redirectors ---
+function generateTaxRedirectors() {
+  taxMeshes.forEach(m => scene.remove(m));
+  taxMeshes = [];
+  taxRedirectors = [];
+
+  if (!taxEnabled) return;
+
+  // Place angled redirectors that push coins toward center
+  const positions = [
+    { x: -3.5, y: 1, angle: 0.4 },
+    { x: 3.5, y: 1, angle: -0.4 },
+    { x: -3, y: -2, angle: 0.35 },
+    { x: 3, y: -2, angle: -0.35 },
+    { x: -2.5, y: -4, angle: 0.3 },
+    { x: 2.5, y: -4, angle: -0.3 },
+  ];
+
+  positions.forEach(p => {
+    taxRedirectors.push(p);
+    const geo = new THREE.BoxGeometry(1.2, 0.12, 0.3);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x00ff88,
+      emissive: 0x00ff88,
+      emissiveIntensity: 0.8,
+      metalness: 0.5,
+      roughness: 0.3
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(p.x, p.y, 0);
+    mesh.rotation.z = p.angle;
+    scene.add(mesh);
+    taxMeshes.push(mesh);
+  });
+}
+
+// --- Coin Materials ---
+const coinGeo = new THREE.SphereGeometry(COIN_RADIUS, 10, 10);
+const coinMat = new THREE.MeshStandardMaterial({
+  color: 0xffdd44,
+  emissive: 0xffaa00,
+  emissiveIntensity: 0.3,
+  metalness: 1.0,
+  roughness: 0.2
+});
+
+// --- Trail material ---
+const trailMat = new THREE.MeshBasicMaterial({
+  color: 0xffaa00,
+  transparent: true,
+  opacity: 0.4
+});
+const trailGeo = new THREE.SphereGeometry(0.06, 4, 4);
+
+// --- Particle material ---
+const particleMat = new THREE.MeshBasicMaterial({
+  transparent: true,
+  opacity: 0.8
+});
+const particleGeo = new THREE.SphereGeometry(0.05, 4, 4);
+
+// --- Drop a coin ---
+function dropCoin(xOffset = 0) {
+  if (coins.length >= MAX_COINS) {
+    // Remove oldest coin
+    const old = coins.shift();
+    scene.remove(old.mesh);
+    old.trail.forEach(t => scene.remove(t));
+  }
+
+  const mesh = new THREE.Mesh(coinGeo, coinMat.clone());
+  const x = xOffset + (Math.random() - 0.5) * 1.5;
+  const y = BOARD_HEIGHT / 2 - 0.5;
+  mesh.position.set(x, y, 0);
+  scene.add(mesh);
+
+  coins.push({
+    mesh,
+    x, y,
+    vx: (Math.random() - 0.5) * 0.5,
+    vy: 0,
+    active: true,
+    trail: [],
+    trailTimer: 0
+  });
+}
+
+// --- Physics Update ---
+function updatePhysics(dt) {
+  dt = Math.min(dt, 0.033); // cap
+
+  coins.forEach(coin => {
+    if (!coin.active) return;
+
+    // Gravity
+    coin.vy += GRAVITY * dt;
+    coin.x += coin.vx * dt;
+    coin.y += coin.vy * dt;
+
+    // Peg collisions
+    pegs.forEach(peg => {
+      const dx = coin.x - peg.x;
+      const dy = coin.y - peg.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const minDist = peg.radius + COIN_RADIUS;
+      if (dist < minDist && dist > 0) {
+        const nx = dx / dist;
+        const ny = dy / dist;
+        // Push out
+        coin.x = peg.x + nx * minDist;
+        coin.y = peg.y + ny * minDist;
+        // Reflect velocity
+        const dotProd = coin.vx * nx + coin.vy * ny;
+        if (dotProd < 0) {
+          coin.vx -= 2 * dotProd * nx;
+          coin.vy -= 2 * dotProd * ny;
+          // Damping
+          coin.vx *= DAMPING;
+          coin.vy *= DAMPING;
+          // Add randomness
+          coin.vx += (Math.random() - 0.5) * 1.5;
+        }
+      }
+    });
+
+    // Tax redirector collisions
+    taxRedirectors.forEach(tr => {
+      const dx = coin.x - tr.x;
+      const dy = coin.y - tr.y;
+      // Simple AABB-like check for redirector (treat as wide peg)
+      if (Math.abs(dx) < 0.7 && Math.abs(dy) < 0.15) {
+        // Push coin toward center
+        coin.vx += -Math.sign(coin.x) * 3;
+        coin.vy = Math.abs(coin.vy) * -0.5;
+        coin.y = tr.y + 0.2;
+      }
+    });
+
+    // Wall bouncing
+    const wallX = BOARD_WIDTH / 2 + 0.7;
+    if (coin.x < -wallX) { coin.x = -wallX; coin.vx = Math.abs(coin.vx) * DAMPING; }
+    if (coin.x > wallX) { coin.x = wallX; coin.vx = -Math.abs(coin.vx) * DAMPING; }
+
+    // Floor - coin lands in bin
+    const floorY = -BOARD_HEIGHT / 2 + 0.2;
+    if (coin.y < floorY) {
+      coin.y = floorY;
+      coin.active = false;
+
+      // Determine bin
+      const normalizedX = (coin.x + wallX) / (wallX * 2);
+      let binIndex = Math.floor(normalizedX * NUM_BINS);
+      binIndex = Math.max(0, Math.min(NUM_BINS - 1, binIndex));
+
+      // Weighted distribution (natural tendency toward edges = wealth concentration)
+      // With deregulation, push more extreme
+      if (regulationLevel < 0) {
+        const edgePull = -regulationLevel * 0.15;
+        if (binIndex <= 1 && Math.random() < edgePull) binIndex = 0;
+        if (binIndex >= 3 && Math.random() < edgePull) binIndex = 4;
+      }
+
+      binCounts[binIndex]++;
+      spawnParticles(coin.x, coin.y, binColors[binIndex]);
+      updateStats();
+    }
+
+    // Update mesh position
+    coin.mesh.position.set(coin.x, coin.y, 0);
+    coin.mesh.rotation.x += dt * 5;
+    coin.mesh.rotation.z += dt * 3;
+
+    // Trail
+    coin.trailTimer += dt;
+    if (coin.trailTimer > 0.05 && coin.active) {
+      coin.trailTimer = 0;
+      const t = new THREE.Mesh(trailGeo, trailMat.clone());
+      t.position.set(coin.x, coin.y, 0);
+      scene.add(t);
+      coin.trail.push(t);
+      if (coin.trail.length > 8) {
+        const old = coin.trail.shift();
+        scene.remove(old);
+      }
+    }
+    // Fade trail
+    coin.trail.forEach((t, i) => {
+      t.material.opacity = (i / coin.trail.length) * 0.3;
+      t.scale.setScalar(0.5 + (i / coin.trail.length) * 0.5);
+    });
+  });
+
+  // Clean up inactive coin trails
+  coins.forEach(coin => {
+    if (!coin.active) {
+      coin.trail.forEach(t => {
+        t.material.opacity -= dt * 2;
+        if (t.material.opacity <= 0) scene.remove(t);
+      });
+    }
+  });
+}
+
+// --- Particles ---
+function spawnParticles(x, y, color) {
+  for (let i = 0; i < 6; i++) {
+    const mat = particleMat.clone();
+    mat.color = new THREE.Color(color);
+    const p = new THREE.Mesh(particleGeo, mat);
+    p.position.set(x, y, 0.1);
+    scene.add(p);
+    particles.push({
+      mesh: p,
+      vx: (Math.random() - 0.5) * 4,
+      vy: Math.random() * 3 + 1,
+      life: 1.0
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt * 2;
+    p.mesh.position.x += p.vx * dt;
+    p.mesh.position.y += p.vy * dt;
+    p.vy -= 10 * dt;
+    p.mesh.material.opacity = p.life;
+    p.mesh.scale.setScalar(p.life);
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      particles.splice(i, 1);
+    }
+  }
+}
+
+// --- Stats ---
+function calculateGini() {
+  const total = binCounts.reduce((a, b) => a + b, 0);
+  if (total === 0) return 0;
+
+  // Assign wealth values to each bin
+  const wealthValues = [1, 3, 7, 15, 40]; // relative wealth per bin
+  let values = [];
+  for (let i = 0; i < NUM_BINS; i++) {
+    for (let j = 0; j < binCounts[i]; j++) {
+      values.push(wealthValues[i]);
+    }
+  }
+  if (values.length <= 1) return 0;
+
+  values.sort((a, b) => a - b);
+  const n = values.length;
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  if (mean === 0) return 0;
+
+  let sumDiff = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      sumDiff += Math.abs(values[i] - values[j]);
+    }
+  }
+  return sumDiff / (2 * n * n * mean);
+}
+
+function updateStats() {
+  const total = binCounts.reduce((a, b) => a + b, 0);
+  document.getElementById('total-coins').textContent = total;
+
+  const gini = calculateGini();
+  document.getElementById('gini-value').textContent = gini.toFixed(3);
+
+  // Color gini based on severity
+  const giniEl = document.getElementById('gini-value');
+  if (gini < 0.3) giniEl.style.color = '#00ff88';
+  else if (gini < 0.5) giniEl.style.color = '#ffaa00';
+  else giniEl.style.color = '#ff4444';
+
+  for (let i = 0; i < NUM_BINS; i++) {
+    const pct = total > 0 ? ((binCounts[i] / total) * 100).toFixed(1) : '0';
+    document.getElementById(`pct-${i}`).textContent = `${pct}%`;
+    document.getElementById(`count-${i}`).textContent = binCounts[i];
+  }
+}
+
+// --- Controls ---
+document.getElementById('btn-regulate').addEventListener('click', () => {
+  regulationLevel = Math.min(2, regulationLevel + 1);
+  generatePegs();
+  generateTaxRedirectors();
+  updateButtonStates();
+});
+
+document.getElementById('btn-deregulate').addEventListener('click', () => {
+  regulationLevel = Math.max(-2, regulationLevel - 1);
+  generatePegs();
+  generateTaxRedirectors();
+  updateButtonStates();
+});
+
+document.getElementById('btn-tax').addEventListener('click', () => {
+  taxEnabled = !taxEnabled;
+  generateTaxRedirectors();
+  updateButtonStates();
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  // Remove all coins
+  coins.forEach(c => {
+    scene.remove(c.mesh);
+    c.trail.forEach(t => scene.remove(t));
+  });
+  coins = [];
+  binCounts = [0, 0, 0, 0, 0];
+  particles.forEach(p => scene.remove(p.mesh));
+  particles = [];
+  regulationLevel = 0;
+  taxEnabled = false;
+  generatePegs();
+  generateTaxRedirectors();
+  updateStats();
+  updateButtonStates();
+});
+
+function updateButtonStates() {
+  document.getElementById('btn-tax').classList.toggle('active', taxEnabled);
+}
+
+// --- Click/Touch to drop coins ---
+function onPointerDown(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mouseX = ((e.clientX || e.touches[0].clientX) / rect.width) * 2 - 1;
+  // Convert screen x to world x approximately
+  const worldX = mouseX * 5;
+  dropCoin(worldX);
+}
+renderer.domElement.addEventListener('pointerdown', onPointerDown);
+
+// --- Resize ---
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+
+  // Adjust camera for mobile
+  if (window.innerWidth < 600) {
+    camera.position.z = 22;
+    camera.fov = 55;
+  } else {
+    camera.position.z = 18;
+    camera.fov = 50;
+  }
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+// --- Animate peg glow ---
+function animatePegs(time) {
+  pegMeshes.forEach((mesh, i) => {
+    const pulse = 0.4 + Math.sin(time * 2 + i * 0.5) * 0.2;
+    mesh.material.emissiveIntensity = pulse;
+  });
+}
+
+// --- Main Loop ---
+let lastTime = performance.now();
+let elapsed = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+  elapsed += dt;
+
+  // Auto-drop
+  if (now - lastAutoDrop > AUTO_DROP_INTERVAL) {
+    lastAutoDrop = now;
+    dropCoin(0);
+  }
+
+  updatePhysics(dt);
+  updateParticles(dt);
+  animatePegs(elapsed);
+
+  // Gentle camera sway
+  camera.position.x = Math.sin(elapsed * 0.2) * 0.3;
+  camera.position.y = 1 + Math.sin(elapsed * 0.15) * 0.2;
+  camera.lookAt(0, -1, 0);
+
+  renderer.render(scene, camera);
+}
+
+// --- Init ---
+generatePegs();
+generateTaxRedirectors();
+updateStats();
+animate();
+
+</script>
+</body>
+</html>
